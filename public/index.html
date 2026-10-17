@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Nexo Tiempo</title>
+  <meta name="description" content="Nexo Tiempo: mapa meteorológico interactivo en tiempo real con datos abiertos." />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="map" aria-label="Mapa meteorológico"></div>
+
+  <header class="brand">
+    <img src="favicon.svg" alt="" width="28" height="28" />
+    <div>
+      <div class="brand-name">Nexo <span>Tiempo</span></div>
+      <div class="brand-sub" id="status">Cargando datos…</div>
+    </div>
+  </header>
+
+  <button id="panelToggle" class="panel-toggle" aria-label="Mostrar capas" aria-expanded="false">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 3 2 8l10 5 10-5-10-5Zm-8.2 9L2 13l10 5 10-5-1.8-1L12 16l-8.2-4Zm0 4L2 17l10 5 10-5-1.8-1L12 20l-8.2-4Z" fill="currentColor"/></svg>
+  </button>
+
+  <aside id="panel" class="panel" aria-label="Capas">
+    <h2>Capas</h2>
+    <ul id="layerList" class="layer-list" role="radiogroup"></ul>
+    <label class="switch">
+      <input type="checkbox" id="particlesToggle" checked />
+      <span>Partículas de viento</span>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="isobarsToggle" checked />
+      <span>Isobaras</span>
+    </label>
+    <p class="panel-note">Datos: Open-Meteo (pronóstico) y RainViewer (radar). Clic en el mapa para ver el pronóstico del punto.</p>
+  </aside>
+
+  <div id="legend" class="legend" aria-label="Leyenda"></div>
+
+  <footer class="timebar" id="timebar">
+    <button id="playBtn" class="play" aria-label="Reproducir">
+      <svg id="playIcon" viewBox="0 0 24 24" width="20" height="20"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+    </button>
+    <div class="time-main">
+      <div class="time-label"><strong id="timeLabel">—</strong><span id="timeRel"></span></div>
+      <input id="timeSlider" type="range" min="0" max="0" value="0" step="1" aria-label="Hora del pronóstico" />
+      <div class="time-ticks" id="timeTicks"></div>
+    </div>
+  </footer>
+
+  <div id="loading" class="loading" hidden><span></span>Actualizando</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

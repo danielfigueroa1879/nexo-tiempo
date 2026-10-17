@@ -1,0 +1,9 @@
+{
+  "name": "nexo-tiempo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mapa meteorológico interactivo en tiempo real con datos abiertos (Open-Meteo, RainViewer).",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
