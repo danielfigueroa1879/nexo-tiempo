@@ -9,14 +9,32 @@
   --accent-2: #4b7bff;
   --radius: 14px;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --attr-bg: rgba(11, 17, 27, 0.75);
+  --link: #a9c4ff;
+  --hover: #1b2638;
   color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #e9eef5;
+  --surface: rgba(255, 255, 255, 0.9);
+  --surface-solid: #ffffff;
+  --border: rgba(15, 25, 40, 0.12);
+  --text: #142033;
+  --muted: #5b6b82;
+  --accent: #0fa596;
+  --accent-2: #2f5fe0;
+  --shadow: 0 6px 22px rgba(20, 32, 51, 0.18);
+  --attr-bg: rgba(255, 255, 255, 0.8);
+  --link: #2f5fe0;
+  --hover: #eef2f7;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
-#map { position: fixed; inset: 0; background: #0b111b; }
-.leaflet-container { background: #0b111b; font-family: inherit; }
+#map { position: fixed; inset: 0; background: var(--bg); }
+.leaflet-container { background: var(--bg); font-family: inherit; }
 
 /* Marca */
 .brand { position: fixed; top: 12px; left: 12px; z-index: 1000; display: flex; gap: 10px; align-items: center;
@@ -36,7 +54,7 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
 .layer-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px;
   border: 1px solid transparent; background: transparent; color: var(--text); font: inherit; font-size: 14px;
   cursor: pointer; text-align: left; }
-.layer-btn:hover { background: rgba(255,255,255,.05); }
+.layer-btn:hover { background: var(--hover); }
 .layer-btn[aria-checked="true"] { background: linear-gradient(90deg, rgba(61,214,198,.18), rgba(75,123,255,.14));
   border-color: rgba(61,214,198,.45); }
 .layer-btn .ico { width: 22px; height: 22px; display: grid; place-items: center; font-size: 16px; }
@@ -98,10 +116,10 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
 .pop-table td:first-child, .pop-table th:first-child { text-align: left; color: var(--muted); }
 
 /* Atribución y controles Leaflet */
-.leaflet-control-attribution { background: rgba(11,17,27,.75) !important; color: var(--muted) !important; font-size: 10px; }
-.leaflet-control-attribution a { color: #a9c4ff !important; }
+.leaflet-control-attribution { background: var(--attr-bg) !important; color: var(--muted) !important; font-size: 10px; }
+.leaflet-control-attribution a { color: var(--link) !important; }
 .leaflet-bar a { background: var(--surface-solid); color: var(--text); border-bottom-color: var(--border); }
-.leaflet-bar a:hover { background: #1b2638; color: var(--text); }
+.leaflet-bar a:hover { background: var(--hover); color: var(--text); }
 .leaflet-bar { border: 1px solid var(--border) !important; }
 .leaflet-top.leaflet-left { top: 64px; }
 
@@ -117,5 +135,38 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
   .leaflet-control-zoom { display: none; }
 }
 
-/* OSM en modo oscuro */
+/* OSM: invertido en modo noche, suavizado en modo día */
 .nx-base { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.35); }
+:root[data-theme="light"] .nx-base { filter: saturate(0.55) contrast(0.95); }
+
+/* Botón de tema */
+.theme-btn { margin-left: 4px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border);
+  background: transparent; color: var(--text); display: grid; place-items: center; cursor: pointer; }
+.theme-btn:hover { background: var(--hover); }
+.theme-btn .i-moon { display: none; }
+:root[data-theme="light"] .theme-btn .i-sun { display: none; }
+:root[data-theme="light"] .theme-btn .i-moon { display: block; }
+
+/* Punto fijo con la lluvia de la hora elegida */
+.nx-pin { position: relative; }
+.nx-pin .pin-dot { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 3px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,.5); }
+.nx-pin .pin-label { position: absolute; left: 0; bottom: 12px; transform: translateX(-50%); white-space: nowrap;
+  padding: 5px 9px; border-radius: 10px; background: var(--surface-solid); color: var(--text); border: 1px solid var(--border);
+  box-shadow: var(--shadow); font-size: 13px; font-weight: 700; text-align: center; line-height: 1.2; }
+.nx-pin .pin-label small { display: block; font-size: 10px; font-weight: 500; color: var(--muted); }
+.nx-pin .pin-label::after { content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
+  border: 6px solid transparent; border-bottom: 0; border-top-color: var(--surface-solid); }
+.pop-sel { margin: 4px 0 10px; padding: 8px 10px; border-radius: 10px;
+  background: linear-gradient(90deg, rgba(61,214,198,.16), rgba(75,123,255,.12)); border: 1px solid rgba(61,214,198,.35); }
+.pop-sel-t { font-size: 11px; color: var(--muted); text-transform: capitalize; }
+.pop-sel-rain { font-size: 13px; margin: 2px 0; }
+.pop-sel-rain b { font-size: 18px; }
+.pop-sel-more { font-size: 12px; }
+.pop-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
+.pop-subh { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 6px 0 4px; }
+.pop-table td.rain { color: var(--accent-2); font-weight: 600; }
+.pin-remove { margin-top: 8px; width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.pin-remove:hover { background: var(--hover); color: var(--text); }
+.leaflet-popup-content { max-height: 60vh; overflow-y: auto; }

@@ -38,7 +38,8 @@
   };
   const LAYER_ORDER = ['pressure', 'wind', 'temp', 'rain', 'radar', 'clouds'];
   const HOURLY_VARS = ['temperature_2m', 'pressure_msl', 'wind_speed_10m', 'wind_direction_10m', 'precipitation', 'cloud_cover'];
-  const FORECAST_HOURS = 96;
+  const FORECAST_HOURS = 240; // 10 días
+  const GRID_STEP_H = 3;        // el mapa usa pasos de 3 h (mucho más liviano); el punto marcado usa datos por hora
 
   const fmtTime = new Intl.DateTimeFormat('es-CL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const fmtDay = new Intl.DateTimeFormat('es-CL', { weekday: 'short', day: 'numeric' });
@@ -113,12 +114,12 @@
     const b = map.getBounds().pad(0.25);
     let w = b.getWest(), e = b.getEast();
     if (e - w > 360) { const c = map.getCenter().lng; w = c - 180; e = c + 180; }
-    let sp = 360 / Math.pow(2, z) * 110 / 256;
+    let sp = 360 / Math.pow(2, z) * 120 / 256;
     for (;;) {
       const gw = Math.floor(w / sp) * sp, ge = Math.ceil(e / sp) * sp;
       const gs = Math.max(Math.floor(b.getSouth() / sp) * sp, -85), gn = Math.min(Math.ceil(b.getNorth() / sp) * sp, 85);
       const nx = Math.round((ge - gw) / sp) + 1, ny = Math.max(2, Math.round((gn - gs) / sp) + 1);
-      if (nx * ny <= 160) return { z, w: gw, e: ge, s: gs, n: gn, nx, ny };
+      if (nx * ny <= 110) return { z, w: gw, e: ge, s: gs, n: gn, nx, ny };
       sp *= 1.25;
     }
   }
@@ -138,22 +139,27 @@
         lons.push(normLon(w + (e - w) * i / (nx - 1)).toFixed(3));
       }
     }
-    // Se divide en bloques paralelos: la API responde mucho más rápido con menos puntos por consulta
-    const CHUNK = 30;
+    // Bloques de puntos, máximo 2 consultas a la vez (Open-Meteo rechaza muchas simultáneas)
+    const CHUNK = 50;
     const urls = [];
     for (let k = 0; k < lats.length; k += CHUNK) {
       urls.push('https://api.open-meteo.com/v1/forecast?latitude=' + lats.slice(k, k + CHUNK).join(',') +
         '&longitude=' + lons.slice(k, k + CHUNK).join(',') + '&hourly=' + HOURLY_VARS.join(',') +
-        '&forecast_hours=' + FORECAST_HOURS + '&timeformat=unixtime&timezone=GMT&cell_selection=nearest');
+        '&forecast_hours=' + FORECAST_HOURS + '&temporal_resolution=hourly_' + GRID_STEP_H +
+        '&timeformat=unixtime&timezone=GMT&cell_selection=nearest');
     }
     setLoading(true);
     try {
-      const parts = await Promise.all(urls.map(async (url) => {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const j = await res.json();
-        return Array.isArray(j) ? j : [j];
-      }));
+      const parts = new Array(urls.length);
+      let next = 0;
+      const worker = async () => {
+        while (next < urls.length) {
+          const k = next++;
+          const j = await fetchJson(urls[k]);
+          parts[k] = Array.isArray(j) ? j : [j];
+        }
+      };
+      await Promise.all([worker(), worker()]);
       const json = parts.flat();
       if (seq !== loadSeq) return;
       const times = json[0].hourly.time;
@@ -163,7 +169,8 @@
           const arr = new Float32Array(nx * ny);
           for (let k = 0; k < nx * ny; k++) {
             const v = json[k] && json[k].hourly[key] ? json[k].hourly[key][t] : null;
-            arr[k] = v == null ? NaN : v;
+            // la lluvia llega acumulada en el paso de 3 h: se pasa a mm por hora
+            arr[k] = v == null ? NaN : key === 'precipitation' ? v / GRID_STEP_H : v;
           }
           return arr;
         });
@@ -198,6 +205,16 @@
     }
   }
 
+  // fetch con reintentos ante "Too many concurrent requests" (HTTP 429)
+  async function fetchJson(url, tries = 4) {
+    for (let attempt = 1; ; attempt++) {
+      const res = await fetch(url);
+      if (res.ok) return res.json();
+      if (res.status !== 429 || attempt >= tries) throw new Error('HTTP ' + res.status);
+      await new Promise((r) => setTimeout(r, 1200 * attempt));
+    }
+  }
+
   function applyGrid(grid) {
     const times = grid.times;
     const prevTime = state.grid ? state.grid.times[state.timeIndex] : null;
@@ -212,6 +229,7 @@
     setStatus('Actualizado ' + fmtHour.format(grid.fetchedAt) + ' · Open-Meteo');
     buildTimebar();
     redrawAll();
+    updatePin();
   }
 
   // Interpolación Catmull-Rom (suave) sobre la grilla
@@ -343,7 +361,8 @@
     const interval = map.getZoom() >= 5 ? 2 : 4;
     const labels = [];
     ctx.lineWidth = 1.1;
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    const light = isLight();
+    ctx.strokeStyle = light ? 'rgba(20,32,51,0.55)' : 'rgba(255,255,255,0.55)';
     ctx.font = '600 11px system-ui, sans-serif';
     for (let L0 = Math.ceil(lo / interval) * interval; L0 <= hi; L0 += interval) {
       ctx.beginPath();
@@ -376,9 +395,9 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const l of labels) {
       const w = ctx.measureText(l.t).width + 8;
-      ctx.fillStyle = 'rgba(11,17,27,0.75)';
+      ctx.fillStyle = light ? 'rgba(255,255,255,0.85)' : 'rgba(11,17,27,0.75)';
       ctx.fillRect(l.x - w / 2, l.y - 8, w, 16);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = light ? '#142033' : '#fff';
       ctx.fillText(l.t, l.x, l.y + 0.5);
     }
     drawPressureCenters(ctx, size, field);
@@ -412,10 +431,10 @@
         const lat = g.s + (g.n - g.s) * j / (g.ny - 1), lon = g.w + (g.e - g.w) * i / (g.nx - 1);
         const p = map.latLngToContainerPoint([lat, lon]);
         if (p.x < 10 || p.y < 10 || p.x > size.x - 10 || p.y > size.y - 10) continue;
-        ctx.fillStyle = isMax ? '#7fb2ff' : '#ff7a7a';
+        ctx.fillStyle = isMax ? (isLight() ? '#1f4fd1' : '#7fb2ff') : (isLight() ? '#d12a2a' : '#ff7a7a');
         ctx.fillText(isMax ? 'A' : 'B', p.x, p.y - 6);
         ctx.font = '600 11px system-ui, sans-serif';
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = isLight() ? '#142033' : '#fff';
         ctx.fillText(Math.round(v), p.x, p.y + 11);
         ctx.font = '800 20px system-ui, sans-serif';
       }
@@ -440,11 +459,14 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size.x, size.y);
     if (!state.grid || !size.x || !size.y || !$('particlesToggle').checked) return;
+    // En modo día sobre capas transparentes (radar, lluvia, nubes) las partículas blancas no se verían
+    particleColor = isLight() && ['radar', 'rain', 'clouds'].includes(state.layer) ? 'rgba(20,32,51,0.75)' : 'rgba(255,255,255,0.85)';
     const count = Math.round(clamp(size.x * size.y / 900, 300, 2500));
     particles = Array.from({ length: count }, () => spawn(size, true));
     const tick = () => { stepParticles(ctx, size); animFrame = requestAnimationFrame(tick); };
     animFrame = requestAnimationFrame(tick);
   }
+  let particleColor = 'rgba(255,255,255,0.85)';
   function spawn(size, randomAge) {
     return { x: Math.random() * size.x, y: Math.random() * size.y, age: randomAge ? Math.floor(Math.random() * 80) : 0 };
   }
@@ -455,7 +477,7 @@
     ctx.fillStyle = 'rgba(0,0,0,0.94)';
     ctx.fillRect(0, 0, size.x, size.y);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.strokeStyle = particleColor;
     ctx.lineWidth = 1.2;
     ctx.beginPath();
     const k = 0.06;
@@ -585,9 +607,11 @@
     ticks.innerHTML = '';
     if (times.length > 1) {
       const radar = LAYERS[state.layer].radar;
+      const dayStep = Math.ceil((times.length / 24) / Math.max(1, ticks.clientWidth / 56));
+      let day = 0;
       times.forEach((t, i) => {
         const d = new Date(t * 1000);
-        const show = radar ? i % 3 === 0 : d.getHours() === 0;
+        const show = radar ? i % 3 === 0 : d.getHours() === 0 && day++ % dayStep === 0;
         if (!show) return;
         const span = document.createElement('span');
         span.style.left = (i / (times.length - 1) * 100) + '%';
@@ -608,7 +632,10 @@
     let rel;
     if (Math.abs(diffMin) < 31) rel = 'ahora';
     else if (Math.abs(diffMin) < 120) rel = (diffMin > 0 ? 'en ' : 'hace ') + Math.abs(diffMin) + ' min';
-    else rel = (diffMin > 0 ? '+' : '−') + Math.round(Math.abs(diffMin) / 60) + ' h';
+    else {
+      const hrs = Math.round(Math.abs(diffMin) / 60);
+      rel = (diffMin > 0 ? '+' : '−') + (hrs >= 48 ? Math.floor(hrs / 24) + ' d ' + (hrs % 24) + ' h' : hrs + ' h');
+    }
     $('timeRel').textContent = rel + (LAYERS[state.layer].radar ? ' · observado' : ' · pronóstico');
   }
 
@@ -617,13 +644,14 @@
     else { state.timeIndex = i; drawField(); }
     $('timeSlider').value = i;
     updateTimeLabel();
+    updatePin();
   }
 
   $('timeSlider').addEventListener('input', (e) => { stopPlay(); setIndex(Number(e.target.value)); });
 
   function togglePlay() {
     if (state.playing) return stopPlay();
-    const delay = LAYERS[state.layer].radar ? 600 : 700;
+    const delay = LAYERS[state.layer].radar ? 600 : 650;
     state.playing = setInterval(() => {
       const n = currentTimes().length;
       if (n) setIndex((currentIndex() + 1) % n);
@@ -658,6 +686,20 @@
     }
   });
 
+  // Modo día / noche
+  function isLight() { return document.documentElement.dataset.theme === 'light'; }
+  function updateThemeBtn() {
+    $('themeBtn').setAttribute('aria-label', isLight() ? 'Cambiar a modo noche' : 'Cambiar a modo día');
+  }
+  $('themeBtn').addEventListener('click', () => {
+    const t = isLight() ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem('nx-theme', t); } catch (e) { /* sin almacenamiento: solo esta visita */ }
+    updateThemeBtn();
+    redrawAll();
+  });
+  updateThemeBtn();
+
   function setStatus(t) { $('status').textContent = t; }
   function setLoading(on) { $('loading').hidden = !on; }
 
@@ -669,41 +711,103 @@
   const arrow = (deg) => `<span style="display:inline-block;transform:rotate(${deg + 180}deg)">↑</span>`;
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? '—' : Number(v).toFixed(d));
 
+  // Punto fijo: al hacer clic se marca el lugar y la etiqueta muestra la lluvia de la hora elegida en la barra
+  const WMO = (c) => c == null ? '' : c === 0 ? '☀️' : c <= 2 ? '🌤️' : c === 3 ? '☁️' : c <= 48 ? '🌫️' :
+    c <= 57 ? '🌦️' : c <= 67 ? '🌧️' : c <= 77 ? '❄️' : c <= 82 ? '🌦️' : c <= 86 ? '🌨️' : '⛈️';
+  let pin = null; // { latlng, lat, lon, data, marker }
+
   map.on('click', async (e) => {
     const lat = e.latlng.lat, lon = normLon(e.latlng.lng);
-    const popup = L.popup({ maxWidth: 320 }).setLatLng(e.latlng)
-      .setContent(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">Cargando pronóstico…</div>`).openOn(map);
+    if (pin) map.removeLayer(pin.marker);
+    const marker = L.marker(e.latlng, { icon: pinIcon('Cargando…'), keyboard: false })
+      .bindPopup('', { maxWidth: 340, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 110] }).addTo(map);
+    pin = { latlng: e.latlng, lat, lon, data: null, marker };
+    const current = pin;
+    marker.setPopupContent(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">Cargando pronóstico…</div>`).openPopup();
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
       '&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
-      '&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,pressure_msl' +
-      '&forecast_hours=25&timezone=auto';
+      '&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max' +
+      '&forecast_hours=' + FORECAST_HOURS + '&forecast_days=10&timeformat=unixtime&timezone=auto';
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const d = await res.json();
-      const c = d.current, h = d.hourly;
-      let rows = '';
-      for (let i = 3; i < h.time.length; i += 3) {
-        rows += `<tr><td>${h.time[i].slice(11, 16)}</td><td>${fmt(h.temperature_2m[i])}°</td>` +
-          `<td>${arrow(h.wind_direction_10m[i])} ${fmt(h.wind_speed_10m[i])}</td>` +
-          `<td>${fmt(h.precipitation[i], 1)}</td><td>${fmt(h.precipitation_probability[i])}%</td><td>${fmt(h.pressure_msl[i])}</td></tr>`;
-      }
-      popup.setContent(`
-        <div class="pop-h">${fmtCoord(lat, lon)}</div>
-        <div class="pop-sub">Ahora (${c.time.slice(11, 16)} hora local · ${d.elevation != null ? Math.round(d.elevation) + ' m s.n.m.' : ''})</div>
-        <div class="pop-now">
-          <div><small>Temperatura</small><b class="pop-big">${fmt(c.temperature_2m)}°C</b></div>
-          <div><small>Sensación</small><b>${fmt(c.apparent_temperature)}°C</b><small>Humedad ${fmt(c.relative_humidity_2m)}%</small></div>
-          <div><small>Viento</small><b>${arrow(c.wind_direction_10m)} ${fmt(c.wind_speed_10m)} km/h ${cardinal(c.wind_direction_10m)}</b><small>Ráfagas ${fmt(c.wind_gusts_10m)} km/h</small></div>
-          <div><small>Presión</small><b>${fmt(c.pressure_msl)} hPa</b></div>
-          <div><small>Lluvia</small><b>${fmt(c.precipitation, 1)} mm</b></div>
-          <div><small>Nubes</small><b>${fmt(c.cloud_cover)}%</b></div>
-        </div>
-        <table class="pop-table"><thead><tr><th>Hora</th><th>Temp</th><th>Viento</th><th>mm</th><th>Prob</th><th>hPa</th></tr></thead><tbody>${rows}</tbody></table>`);
+      const d = await fetchJson(url);
+      if (pin !== current) return;
+      pin.data = d;
+      updatePin();
     } catch (err) {
-      popup.setContent(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">No se pudo cargar el pronóstico.</div>`);
+      if (pin !== current) return;
+      marker.setIcon(pinIcon('Sin datos'));
+      marker.setPopupContent(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">No se pudo cargar el pronóstico. Intenta de nuevo en un minuto.</div>`);
     }
   });
+
+  function pinIcon(text) {
+    return L.divIcon({
+      className: 'nx-pin', iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -34],
+      html: `<div class="pin-label">${text}</div><div class="pin-dot"></div>`,
+    });
+  }
+
+  // Índice horario del punto que corresponde a la hora seleccionada en la barra de tiempo
+  function pinHourIndex() {
+    const h = pin.data.hourly;
+    const t = currentTimes()[currentIndex()];
+    if (t == null) return 0;
+    const hour = Math.floor(t / 3600) * 3600;
+    if (hour <= h.time[0]) return 0;
+    const i = h.time.indexOf(hour);
+    return i >= 0 ? i : h.time.length - 1;
+  }
+
+  function updatePin() {
+    if (!pin || !pin.data) return;
+    const h = pin.data.hourly, i = pinHourIndex();
+    const mm = h.precipitation[i], prob = h.precipitation_probability[i];
+    const label = mm > 0 ? `💧 ${fmt(mm, 1)} mm` : 'Sin lluvia';
+    pin.marker.setIcon(pinIcon(`${label}<small>${fmt(prob)}% prob.</small>`));
+    pin.marker.setPopupContent(renderPinPopup(i));
+  }
+
+  function renderPinPopup(i) {
+    const d = pin.data, c = d.current, h = d.hourly, dl = d.daily;
+    const selTime = fmtTime.format(new Date(h.time[i] * 1000));
+    let days = '';
+    for (let k = 0; k < dl.time.length; k++) {
+      const date = new Date((dl.time[k] + d.utc_offset_seconds) * 1000);
+      const name = k === 0 ? 'Hoy' : date.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
+      days += `<tr><td>${name}</td><td>${WMO(dl.weather_code[k])}</td><td>${fmt(dl.temperature_2m_max[k])}° / ${fmt(dl.temperature_2m_min[k])}°</td>` +
+        `<td class="${dl.precipitation_sum[k] > 0 ? 'rain' : ''}">${fmt(dl.precipitation_sum[k], 1)} mm</td><td>${fmt(dl.precipitation_probability_max[k])}%</td></tr>`;
+    }
+    return `
+      <div class="pop-h">${fmtCoord(pin.lat, pin.lon)}</div>
+      <div class="pop-sub">${d.elevation != null ? Math.round(d.elevation) + ' m s.n.m.' : ''}</div>
+      <div class="pop-sel">
+        <div class="pop-sel-t">${selTime}</div>
+        <div class="pop-sel-rain"><b>${fmt(h.precipitation[i], 1)} mm</b> de lluvia en esa hora · ${fmt(h.precipitation_probability[i])}% de probabilidad</div>
+        <div class="pop-sel-more">${fmt(h.temperature_2m[i])}°C · viento ${arrow(h.wind_direction_10m[i])} ${fmt(h.wind_speed_10m[i])} km/h ${cardinal(h.wind_direction_10m[i])}</div>
+        <div class="pop-hint">Mueve la barra de tiempo para ver otra hora.</div>
+      </div>
+      <div class="pop-subh">Ahora</div>
+      <div class="pop-now">
+        <div><small>Temperatura</small><b class="pop-big">${fmt(c.temperature_2m)}°C</b></div>
+        <div><small>Sensación</small><b>${fmt(c.apparent_temperature)}°C</b><small>Humedad ${fmt(c.relative_humidity_2m)}%</small></div>
+        <div><small>Viento</small><b>${arrow(c.wind_direction_10m)} ${fmt(c.wind_speed_10m)} km/h ${cardinal(c.wind_direction_10m)}</b><small>Ráfagas ${fmt(c.wind_gusts_10m)} km/h</small></div>
+        <div><small>Presión</small><b>${fmt(c.pressure_msl)} hPa</b></div>
+        <div><small>Lluvia</small><b>${fmt(c.precipitation, 1)} mm</b></div>
+        <div><small>Nubes</small><b>${fmt(c.cloud_cover)}%</b></div>
+      </div>
+      <div class="pop-subh">Próximos 10 días</div>
+      <table class="pop-table"><thead><tr><th>Día</th><th></th><th>Máx / Mín</th><th>Lluvia</th><th>Prob</th></tr></thead><tbody>${days}</tbody></table>
+      <button class="pin-remove" type="button">Quitar punto</button>`;
+  }
+
+  map.getContainer().addEventListener('click', (e) => {
+    if (!e.target.closest('.pin-remove') || !pin) return;
+    map.closePopup();
+    map.removeLayer(pin.marker);
+    pin = null;
+  }, true); // en captura: Leaflet detiene la propagación de clics dentro del popup
+
   function fmtCoord(lat, lon) {
     return `${Math.abs(lat).toFixed(2)}° ${lat < 0 ? 'S' : 'N'}, ${Math.abs(lon).toFixed(2)}° ${lon < 0 ? 'O' : 'E'}`;
   }
