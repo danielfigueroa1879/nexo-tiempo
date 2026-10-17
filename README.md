@@ -16,8 +16,10 @@ Luego abre **http://localhost:5173** en el navegador. Para detenerla, presiona `
 ## Qué incluye
 
 - Capas: Presión (isobaras, centros A/B), Viento (partículas animadas), Temperatura, Lluvia (pronóstico), Radar (observado) y Nubes.
-- Barra de tiempo: 4 días de pronóstico por hora (en Radar, las últimas 2 horas observadas). Botón ▶ o barra espaciadora para reproducir; flechas ← → para avanzar.
-- Clic en el mapa: pronóstico del punto (ahora y las próximas 24 h).
+- Barra de tiempo: 10 días de pronóstico en pasos de 3 horas (en Radar, las últimas 2 horas observadas). Botón ▶ o barra espaciadora para reproducir; flechas ← → para avanzar.
+- Clic en el mapa: deja un punto marcado que muestra los mm de lluvia y la probabilidad para la hora elegida en la barra
+  (se actualiza al moverla), más el tiempo actual y un resumen de los próximos 10 días.
+- Botón ☀️/🌙: modo día o noche.
 - Al pasar el mouse se ve el valor de la capa activa.
 - La URL guarda la posición y la capa (ej. `#-33.452,-70.654,5,pressure`).
 
