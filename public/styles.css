@@ -67,7 +67,7 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
   backdrop-filter: blur(10px); box-shadow: var(--shadow); cursor: pointer; }
 
 /* Leyenda */
-.legend { position: fixed; right: 12px; bottom: 104px; z-index: 1000; width: 260px; padding: 8px 10px 6px;
+.legend { position: fixed; z-index: 1000; width: 260px; padding: 8px 10px 6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(10px);
   font-size: 11px; color: var(--muted); }
 .legend .bar { height: 10px; border-radius: 5px; margin: 4px 0 3px; }
@@ -125,14 +125,93 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
 
 .label-hl { font-weight: 800; }
 
+/* ---------------------------------------------------------------------------
+   Diseño adaptable
+   --tb-gap = distancia desde el borde inferior hasta la parte de arriba de la barra de tiempo (la calcula app.js)
+   --------------------------------------------------------------------------- */
+.brand { top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); }
+.panel { top: calc(12px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right));
+  max-height: calc(100vh - var(--tb-gap, 110px) - 30px); max-height: calc(100dvh - var(--tb-gap, 110px) - 30px); overflow-y: auto; }
+.legend { bottom: calc(var(--tb-gap, 96px) + 8px); right: calc(12px + env(safe-area-inset-right)); }
+.timebar { bottom: calc(26px + env(safe-area-inset-bottom)); left: calc(12px + env(safe-area-inset-left));
+  right: calc(12px + env(safe-area-inset-right)); }
+.time-label { min-width: 0; }
+.time-label strong, .time-label span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Hoja con el pronóstico del punto (celulares) */
+.sheet { position: fixed; z-index: 1100; left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right));
+  bottom: calc(var(--tb-gap, 96px) + 8px); max-height: 48vh; max-height: min(48dvh, calc(100dvh - var(--tb-gap, 96px) - 120px));
+  display: flex; flex-direction: column; background: var(--surface-solid); color: var(--text); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow); font-size: 13px; animation: sheet-in .18s ease-out; }
+.sheet[hidden] { display: none; }
+.sheet-body { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 12px 14px; }
+.sheet-body .pop-h { padding-right: 36px; }
+.sheet-close { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; border-radius: 50%; border: none;
+  background: var(--hover); color: var(--text); font-size: 15px; cursor: pointer; z-index: 1; }
+@keyframes sheet-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+body.sheet-open .legend { display: none; }
+
+/* Pantallas táctiles: botones más grandes */
+@media (pointer: coarse) {
+  .layer-btn { padding: 11px 10px; }
+  .switch { padding: 7px 2px; }
+  #timeSlider { height: 28px; }
+}
+
+/* Celulares (vertical) y ventanas angostas */
 @media (max-width: 720px) {
-  .panel-toggle { display: grid; place-items: center; }
-  .panel { top: 64px; display: none; width: min(260px, calc(100vw - 24px)); }
+  .panel-toggle { display: grid; place-items: center; top: calc(12px + env(safe-area-inset-top));
+    right: calc(12px + env(safe-area-inset-right)); }
+  .panel { top: calc(64px + env(safe-area-inset-top)); display: none; width: min(260px, calc(100vw - 24px)); z-index: 1002; }
   .panel.open { display: block; }
-  .legend { left: 12px; right: 12px; width: auto; bottom: 112px; }
-  .timebar { bottom: 22px; left: 8px; right: 8px; padding: 8px 10px; gap: 10px; }
+  .legend { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto;
+    padding: 5px 10px 4px; font-size: 10px; }
+  .legend .bar { height: 8px; margin: 3px 0 2px; }
+  .timebar { bottom: calc(20px + env(safe-area-inset-bottom)); left: calc(8px + env(safe-area-inset-left));
+    right: calc(8px + env(safe-area-inset-right)); padding: 8px 10px; gap: 10px; }
+  .play { width: 40px; height: 40px; }
   .brand-sub { max-width: 150px; }
   .leaflet-control-zoom { display: none; }
+}
+
+/* Celulares pequeños (iPhone SE, Android compactos) */
+@media (max-width: 380px) {
+  .brand { padding: 6px 10px 6px 8px; gap: 8px; }
+  .brand img { width: 24px; height: 24px; }
+  .brand-name { font-size: 15px; }
+  .brand-sub { max-width: 112px; font-size: 10px; }
+  .theme-btn { width: 30px; height: 30px; }
+  .time-label { font-size: 13px; gap: 6px; }
+  .time-label .rel-kind { display: none; }
+  .play { width: 36px; height: 36px; }
+  .timebar { gap: 8px; padding: 7px 9px; }
+  .pop-now b { font-size: 14px; }
+  .pop-big { font-size: 22px !important; }
+  .pop-table { font-size: 10px; }
+}
+
+/* Celulares en horizontal y pantallas bajas */
+@media (max-height: 500px) {
+  .brand { padding: 5px 10px 5px 8px; }
+  .brand-sub { display: none; }
+  .panel-toggle { display: grid; place-items: center; width: 40px; height: 40px; top: calc(8px + env(safe-area-inset-top)); }
+  .panel { display: none; top: calc(54px + env(safe-area-inset-top)); z-index: 1002; width: 240px;
+    max-height: calc(100vh - 64px); max-height: calc(100dvh - 64px); padding: 10px; }
+  .panel.open { display: block; }
+  .panel h2, .panel-note { display: none; }
+  .layer-btn { padding: 7px 10px; }
+  .legend { top: calc(56px + env(safe-area-inset-top)); bottom: auto; left: auto; right: calc(10px + env(safe-area-inset-right));
+    width: 210px; padding: 5px 9px 4px; font-size: 10px; }
+  .legend .bar { height: 7px; }
+  .timebar { bottom: calc(18px + env(safe-area-inset-bottom)); padding: 6px 10px; }
+  .play { width: 36px; height: 36px; }
+  .time-ticks { height: 12px; font-size: 9px; }
+  #timeSlider { height: 20px; }
+  .leaflet-top.leaflet-left { top: 52px; }
+  .leaflet-control-zoom { display: none; }
+  /* hoja lateral en vez de inferior */
+  .sheet { left: auto; top: calc(8px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right));
+    width: min(340px, 58vw); max-height: none; bottom: calc(var(--tb-gap, 70px) + 6px); }
 }
 
 /* OSM: invertido en modo noche, suavizado en modo día */

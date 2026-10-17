@@ -38,7 +38,7 @@
   };
   const LAYER_ORDER = ['pressure', 'wind', 'temp', 'rain', 'radar', 'clouds'];
   const HOURLY_VARS = ['temperature_2m', 'pressure_msl', 'wind_speed_10m', 'wind_direction_10m', 'precipitation', 'cloud_cover'];
-  const FORECAST_HOURS = 240; // 10 días
+  const FORECAST_HOURS = 360; // 15 días
   const GRID_STEP_H = 3;        // el mapa usa pasos de 3 h (mucho más liviano); el punto marcado usa datos por hora
 
   const fmtTime = new Intl.DateTimeFormat('es-CL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -567,7 +567,7 @@
     } else {
       hideRadar();
     }
-    if (window.innerWidth <= 720) togglePanel(false);
+    if (isCompact()) togglePanel(false);
     buildLegend();
     buildTimebar();
     redrawAll();
@@ -607,11 +607,12 @@
     ticks.innerHTML = '';
     if (times.length > 1) {
       const radar = LAYERS[state.layer].radar;
-      const dayStep = Math.ceil((times.length / 24) / Math.max(1, ticks.clientWidth / 56));
+      const width = ticks.getBoundingClientRect().width || window.innerWidth - 90;
+      const dayStep = Math.max(1, Math.ceil((times.length * (radar ? 1 : 3) / 24) / Math.max(1, width / 54)));
       let day = 0;
       times.forEach((t, i) => {
         const d = new Date(t * 1000);
-        const show = radar ? i % 3 === 0 : d.getHours() === 0 && day++ % dayStep === 0;
+        const show = radar ? i % 3 === 0 : d.getHours() < 3 && (i === 0 || new Date(times[i - 1] * 1000).getDate() !== d.getDate()) && day++ % dayStep === 0;
         if (!show) return;
         const span = document.createElement('span');
         span.style.left = (i / (times.length - 1) * 100) + '%';
@@ -636,7 +637,7 @@
       const hrs = Math.round(Math.abs(diffMin) / 60);
       rel = (diffMin > 0 ? '+' : '−') + (hrs >= 48 ? Math.floor(hrs / 24) + ' d ' + (hrs % 24) + ' h' : hrs + ' h');
     }
-    $('timeRel').textContent = rel + (LAYERS[state.layer].radar ? ' · observado' : ' · pronóstico');
+    $('timeRel').innerHTML = rel + `<span class="rel-kind"> · ${LAYERS[state.layer].radar ? 'observado' : 'pronóstico'}</span>`;
   }
 
   function setIndex(i) {
@@ -714,21 +715,67 @@
   // Punto fijo: al hacer clic se marca el lugar y la etiqueta muestra la lluvia de la hora elegida en la barra
   const WMO = (c) => c == null ? '' : c === 0 ? '☀️' : c <= 2 ? '🌤️' : c === 3 ? '☁️' : c <= 48 ? '🌫️' :
     c <= 57 ? '🌦️' : c <= 67 ? '🌧️' : c <= 77 ? '❄️' : c <= 82 ? '🌦️' : c <= 86 ? '🌨️' : '⛈️';
-  let pin = null; // { latlng, lat, lon, data, marker }
+  let pin = null; // { latlng, lat, lon, data, marker, html }
+
+  // En celulares (o pantallas bajas) los detalles van en una hoja fija en vez de un globo sobre el mapa
+  const isCompact = () => window.innerWidth <= 720 || window.innerHeight <= 500;
+  const sheet = $('sheet'), sheetBody = $('sheetBody');
+
+  function setDetails(html) {
+    pin.html = html;
+    if (!sheet.hidden) { sheetBody.innerHTML = html; setTimeout(keepPinVisible, 30); }
+    if (pin.marker.isPopupOpen()) pin.marker.setPopupContent(html);
+  }
+  function showDetails() {
+    if (!pin) return;
+    if (isCompact()) {
+      map.closePopup();
+      sheetBody.innerHTML = pin.html;
+      sheet.hidden = false;
+      document.body.classList.add('sheet-open');
+      sheetBody.scrollTop = 0;
+      setTimeout(keepPinVisible, 30);
+    } else {
+      hideSheet();
+      pin.marker.bindPopup(pin.html, {
+        maxWidth: 340, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, layoutGap() + 10],
+      }).openPopup();
+    }
+  }
+  // Desplaza el mapa para que el punto no quede tapado por la hoja
+  function keepPinVisible() {
+    if (!pin || sheet.hidden) return;
+    const r = sheet.getBoundingClientRect(), p = map.latLngToContainerPoint(pin.latlng);
+    const top = 70;
+    if (r.left > window.innerWidth * 0.3) { // hoja lateral (horizontal)
+      const right = r.left - 20;
+      if (p.x > right - 10 || p.x < 20) map.panBy([p.x - right / 2, 0], { animate: false });
+    } else {
+      const bottom = r.top - 14;
+      if (p.y > bottom || p.y < top + 50) map.panBy([0, p.y - (top + 50 + Math.max(0, bottom - top - 50) / 2)], { animate: false });
+    }
+  }
+  function hideSheet() {
+    sheet.hidden = true;
+    document.body.classList.remove('sheet-open');
+  }
+  $('sheetClose').addEventListener('click', hideSheet);
 
   map.on('click', async (e) => {
+    if (isCompact() && $('panel').classList.contains('open')) { togglePanel(false); return; }
     const lat = e.latlng.lat, lon = normLon(e.latlng.lng);
     if (pin) map.removeLayer(pin.marker);
-    const marker = L.marker(e.latlng, { icon: pinIcon('Cargando…'), keyboard: false })
-      .bindPopup('', { maxWidth: 340, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 110] }).addTo(map);
-    pin = { latlng: e.latlng, lat, lon, data: null, marker };
+    const marker = L.marker(e.latlng, { icon: pinIcon('Cargando…'), keyboard: false }).addTo(map);
+    marker.on('click', showDetails);
+    pin = { latlng: e.latlng, lat, lon, data: null, marker,
+      html: `<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">Cargando pronóstico…</div>` };
     const current = pin;
-    marker.setPopupContent(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">Cargando pronóstico…</div>`).openPopup();
+    showDetails();
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
       '&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
       '&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m' +
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max' +
-      '&forecast_hours=' + FORECAST_HOURS + '&forecast_days=10&timeformat=unixtime&timezone=auto';
+      '&forecast_hours=' + FORECAST_HOURS + '&forecast_days=15&timeformat=unixtime&timezone=auto';
     try {
       const d = await fetchJson(url);
       if (pin !== current) return;
@@ -737,7 +784,7 @@
     } catch (err) {
       if (pin !== current) return;
       marker.setIcon(pinIcon('Sin datos'));
-      marker.setPopupContent(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">No se pudo cargar el pronóstico. Intenta de nuevo en un minuto.</div>`);
+      setDetails(`<div class="pop-h">${fmtCoord(lat, lon)}</div><div class="pop-sub">No se pudo cargar el pronóstico. Intenta de nuevo en un minuto.</div>`);
     }
   });
 
@@ -765,7 +812,7 @@
     const mm = h.precipitation[i], prob = h.precipitation_probability[i];
     const label = mm > 0 ? `💧 ${fmt(mm, 1)} mm` : 'Sin lluvia';
     pin.marker.setIcon(pinIcon(`${label}<small>${fmt(prob)}% prob.</small>`));
-    pin.marker.setPopupContent(renderPinPopup(i));
+    setDetails(renderPinPopup(i));
   }
 
   function renderPinPopup(i) {
@@ -796,7 +843,7 @@
         <div><small>Lluvia</small><b>${fmt(c.precipitation, 1)} mm</b></div>
         <div><small>Nubes</small><b>${fmt(c.cloud_cover)}%</b></div>
       </div>
-      <div class="pop-subh">Próximos 10 días</div>
+      <div class="pop-subh">Próximos 15 días</div>
       <table class="pop-table"><thead><tr><th>Día</th><th></th><th>Máx / Mín</th><th>Lluvia</th><th>Prob</th></tr></thead><tbody>${days}</tbody></table>
       <button class="pin-remove" type="button">Quitar punto</button>`;
   }
@@ -804,6 +851,7 @@
   map.getContainer().addEventListener('click', (e) => {
     if (!e.target.closest('.pin-remove') || !pin) return;
     map.closePopup();
+    hideSheet();
     map.removeLayer(pin.marker);
     pin = null;
   }, true); // en captura: Leaflet detiene la propagación de clics dentro del popup
@@ -844,6 +892,23 @@
     fieldCanvas.style.opacity = 1; partCanvas.style.opacity = 1;
     redrawAll(); scheduleLoad(); writeHash();
   });
+  function layoutGap() {
+    const tb = $('timebar').getBoundingClientRect();
+    return Math.max(0, window.innerHeight - tb.top);
+  }
+  function updateLayout() {
+    document.documentElement.style.setProperty('--tb-gap', layoutGap() + 'px');
+  }
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      updateLayout();
+      buildTimebar();
+      if (pin && (!sheet.hidden || pin.marker.isPopupOpen())) showDetails();
+    }, 150);
+  });
+  updateLayout();
   map.on('resize', () => { redrawAll(); scheduleLoad(); });
 
   function readHash() {
